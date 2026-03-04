@@ -24,14 +24,19 @@ check_status() {
 
 # 安装功能
 install_tuic() {
-    read -p "设置域名 (如 dc1.767667.xyz): " DOMAIN
+    read -p "设置域名 : " DOMAIN
     read -p "设置端口 (默认 443): " PORT
     PORT=${PORT:-443}
-    read -p "设置 UUID (留空则随机生成): " USER_UUID
+    read -p "设置 UUID (留空随机生成): " USER_UUID
     USER_UUID=${USER_UUID:-$(cat /proc/sys/kernel/random/uuid)}
-    read -p "设置连接密码: " PASSWORD
     
-    # 1. 下载二进制文件 (v1.0.0 正式版)
+    # 密码随机逻辑：如果为空，则生成 12 位随机字符串
+    read -p "设置连接密码 (留空随机生成): " PASSWORD
+    if [ -z "$PASSWORD" ]; then
+        PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+    fi
+    
+    # 1. 下载二进制文件
     arch=$(uname -m)
     echo -e "${YELLOW}正在下载 TUIC v5 服务端...${NC}"
     if [ "$arch" == "x86_64" ]; then
@@ -43,7 +48,7 @@ install_tuic() {
     fi
     curl -L $url -o /usr/local/bin/tuic-server && chmod +x /usr/local/bin/tuic-server
 
-    # 2. 证书复用检查 (复用 Hy2 的证书路径)
+    # 2. 证书复用检查
     CERT_PATH="/etc/hysteria/certs/server.crt"
     KEY_PATH="/etc/hysteria/certs/server.key"
     
@@ -52,7 +57,7 @@ install_tuic() {
         exit 1
     fi
 
-    # 3. 生成 JSON 配置文件
+    # 3. 生成 JSON 配置文件 (已移除无效的 udp_relay_mode 字段)
     mkdir -p /etc/tuic
     cat << EOF > /etc/tuic/config.json
 {
@@ -64,7 +69,6 @@ install_tuic() {
     "private_key": "$KEY_PATH",
     "congestion_control": "bbr",
     "alpn": ["h3"],
-    "udp_relay_mode": "native",
     "zero_rtt_handshake": true,
     "dual_stack": true,
     "auth_timeout": "3s",
@@ -98,7 +102,7 @@ EOF
     systemctl restart tuic
     
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}TUIC v5 安装成功!${NC}"
+    echo -e "${GREEN}TUIC v5 安装并配置完成!${NC}"
     echo -e "域名: ${YELLOW}$DOMAIN${NC}"
     echo -e "端口: ${YELLOW}$PORT${NC}"
     echo -e "UUID: ${YELLOW}$USER_UUID${NC}"
