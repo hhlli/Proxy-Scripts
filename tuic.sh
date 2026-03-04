@@ -31,19 +31,19 @@ view_config() {
     fi
     
     PORT=$(grep '"server":' $CONF | awk -F: '{print $NF}' | tr -d '", ')
-    UUID=$(grep -oE '[a-z0-9-]{36}' $CONF | head -1)
-    TOKEN=$(grep "\"$UUID\":" $CONF | awk -F: '{print $2}' | tr -d '", ')
+    UUID=$(grep -oE '[a-z0-9A-Z-]{36}' $CONF | head -1 | tr '[:lower:]' '[:upper:]')
+    PASSWORD=$(grep -i "\"$UUID\":" $CONF | awk -F: '{print $2}' | tr -d '", ')
 
     echo -e "${GREEN}=== 当前 TUIC v5 配置 ===${NC}"
     echo -e "监听端口: ${YELLOW}$PORT${NC}"
     echo -e "UUID:     ${YELLOW}$UUID${NC}"
-    echo -e "Token:    ${YELLOW}$TOKEN${NC}"
+    echo -e "Password: ${YELLOW}$PASSWORD${NC}"
     echo -e "----------------------------------------"
     echo -e "Surge 配置参考:"
-    echo -e "${GREEN}TUIC-Node = tuic, 你的域名, $PORT, token=$TOKEN, uuid=$UUID, sni=你的域名, alpn=h3${NC}"
+    echo -e "${GREEN}TUIC-Node = tuic-v5, 你的域名, $PORT, password=$PASSWORD, uuid=$UUID, alpn=h3, sni=你的域名${NC}"
 }
 
-# 2. 修改端口和 Token
+# 2. 修改端口和 Password
 modify_config() {
     CONF="/etc/tuic/config.json"
     if [ ! -f "$CONF" ]; then
@@ -53,15 +53,15 @@ modify_config() {
 
     read -p "设置新端口: " NEW_PORT
     
-    # 自动生成新的 16 位强 Token
-    NEW_TOKEN=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
-    CURRENT_UUID=$(grep -oE '[a-z0-9-]{36}' $CONF | head -1)
+    # 自动生成新的 16 位强密码
+    NEW_PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
+    CURRENT_UUID=$(grep -oE '[a-z0-9A-Z-]{36}' $CONF | head -1)
 
     sed -i "s/\"server\": \".*\"/\"server\": \"[::]:$NEW_PORT\"/" $CONF
-    sed -i "s/\"$CURRENT_UUID\": \".*\"/\"$CURRENT_UUID\": \"$NEW_TOKEN\"/" $CONF
+    sed -i "s/\"$CURRENT_UUID\": \".*\"/\"$CURRENT_UUID\": \"$NEW_PASSWORD\"/" $CONF
 
     systemctl restart tuic
-    echo -e "${GREEN}配置已更新并重启服务。新的强 Token 已生效。${NC}"
+    echo -e "${GREEN}配置已更新并重启服务。新的强密码已生效。${NC}"
     view_config
 }
 
@@ -71,9 +71,9 @@ install_tuic() {
     read -p "设置端口 (默认 443): " PORT
     PORT=${PORT:-443}
     
-    # 全自动生成 UUID 和 16位强密码 Token
-    echo -e "${YELLOW}正在自动生成 UUID 与强 Token...${NC}"
-    USER_UUID=$(cat /proc/sys/kernel/random/uuid)
+    # 全自动生成大写 UUID 和 16位强密码
+    echo -e "${YELLOW}正在自动生成 UUID 与强密码...${NC}"
+    USER_UUID=$(cat /proc/sys/kernel/random/uuid | tr '[:lower:]' '[:upper:]')
     PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
     
     # 下载二进制文件
@@ -160,10 +160,10 @@ EOF
     echo -e "域名: ${YELLOW}$DOMAIN${NC}"
     echo -e "端口: ${YELLOW}$PORT${NC}"
     echo -e "UUID: ${YELLOW}$USER_UUID${NC}"
-    echo -e "Token: ${YELLOW}$PASSWORD${NC}"
+    echo -e "Password: ${YELLOW}$PASSWORD${NC}"
     echo -e "----------------------------------------"
     echo -e "Surge 配置参考 (可直接复制):"
-    echo -e "${GREEN}TUIC-Node = tuic, $DOMAIN, $PORT, token=$PASSWORD, uuid=$USER_UUID, sni=$DOMAIN, skip-cert-verify=false, alpn=h3${NC}"
+    echo -e "${GREEN}TUIC-Node = tuic-v5, $DOMAIN, $PORT, password=$PASSWORD, uuid=$USER_UUID, alpn=h3, sni=$DOMAIN${NC}"
     echo -e "${GREEN}========================================${NC}"
 }
 
@@ -189,7 +189,7 @@ echo "2. 卸载"
 echo "3. 重启服务"
 echo "4. 查看实时日志"
 echo "5. 查看当前配置"
-echo "6. 修改端口和 Token"
+echo "6. 修改端口和 Password"
 echo "7. 退出"
 read -p "请选择 [1-7]: " opt
 
