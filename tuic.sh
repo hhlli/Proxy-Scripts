@@ -22,21 +22,61 @@ check_status() {
     fi
 }
 
-# 安装功能
+# 1. 查看当前配置
+view_config() {
+    CONF="/etc/tuic/config.json"
+    if [ ! -f "$CONF" ]; then
+        echo -e "${RED}配置文件不存在，请先安装!${NC}"
+        return
+    fi
+    
+    PORT=$(grep '"server":' $CONF | awk -F: '{print $NF}' | tr -d '", ')
+    UUID=$(grep -oE '[a-z0-9-]{36}' $CONF | head -1)
+    TOKEN=$(grep "\"$UUID\":" $CONF | awk -F: '{print $2}' | tr -d '", ')
+
+    echo -e "${GREEN}=== 当前 TUIC v5 配置 ===${NC}"
+    echo -e "监听端口: ${YELLOW}$PORT${NC}"
+    echo -e "UUID:     ${YELLOW}$UUID${NC}"
+    echo -e "Token:    ${YELLOW}$TOKEN${NC}"
+    echo -e "----------------------------------------"
+    echo -e "Surge 配置参考:"
+    echo -e "${GREEN}TUIC-Node = tuic, 你的域名, $PORT, token=$TOKEN, uuid=$UUID, sni=你的域名, alpn=h3${NC}"
+}
+
+# 2. 修改端口和 Token
+modify_config() {
+    CONF="/etc/tuic/config.json"
+    if [ ! -f "$CONF" ]; then
+        echo -e "${RED}配置文件不存在，请先安装!${NC}"
+        return
+    fi
+
+    read -p "设置新端口: " NEW_PORT
+    
+    # 自动生成新的 16 位强 Token
+    NEW_TOKEN=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
+    CURRENT_UUID=$(grep -oE '[a-z0-9-]{36}' $CONF | head -1)
+
+    sed -i "s/\"server\": \".*\"/\"server\": \"[::]:$NEW_PORT\"/" $CONF
+    sed -i "s/\"$CURRENT_UUID\": \".*\"/\"$CURRENT_UUID\": \"$NEW_TOKEN\"/" $CONF
+
+    systemctl restart tuic
+    echo -e "${GREEN}配置已更新并重启服务。新的强 Token 已生效。${NC}"
+    view_config
+}
+
+# 3. 安装功能
 install_tuic() {
     read -p "设置域名 (如 dc1.767667.xyz): " DOMAIN
     read -p "设置端口 (默认 443): " PORT
     PORT=${PORT:-443}
-    read -p "设置 UUID (留空随机生成): " USER_UUID
-    USER_UUID=${USER_UUID:-$(cat /proc/sys/kernel/random/uuid)}
     
-    # 密码/Token 随机逻辑
-    read -p "设置连接密码/Token (留空随机生成): " PASSWORD
-    if [ -z "$PASSWORD" ]; then
-        PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
-    fi
+    # 全自动生成 UUID 和 16位强密码 Token
+    echo -e "${YELLOW}正在自动生成 UUID 与强 Token...${NC}"
+    USER_UUID=$(cat /proc/sys/kernel/random/uuid)
+    PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
     
-    # 1. 下载二进制文件
+    # 下载二进制文件
     arch=$(uname -m)
     echo -e "${YELLOW}正在下载 TUIC v5 服务端...${NC}"
     if [ "$arch" == "x86_64" ]; then
@@ -48,16 +88,30 @@ install_tuic() {
     fi
     curl -L $url -o /usr/local/bin/tuic-server && chmod +x /usr/local/bin/tuic-server
 
-    # 2. 证书路径 (默认使用 Hysteria 2 申请的路径)
-    CERT_PATH="/etc/hysteria/certs/server.crt"
-    KEY_PATH="/etc/hysteria/certs/server.key"
-    
-    if [ ! -f "$CERT_PATH" ]; then
-        echo -e "${RED}错误: 未找到域名证书! 请先通过 Hy2 脚本申请证书。${NC}"
-        exit 1
+    # 证书申请与检测逻辑
+    if [ -f "/etc/hysteria/certs/server.crt" ]; then
+        echo -e "${GREEN}检测到现有 Hysteria 2 证书，直接复用。${NC}"
+        CERT_PATH="/etc/hysteria/certs/server.crt"
+        KEY_PATH="/etc/hysteria/certs/server.key"
+    elif [ -f "/etc/tuic/certs/server.crt" ]; then
+        echo -e "${GREEN}检测到现有 TUIC 证书，直接复用。${NC}"
+        CERT_PATH="/etc/tuic/certs/server.crt"
+        KEY_PATH="/etc/tuic/certs/server.key"
+    else
+        echo -e "${YELLOW}未检测到可用证书，开始自动申请独立证书...${NC}"
+        apt update && apt install -y curl socat
+        curl https://get.acme.sh | sh -s email=admin@$DOMAIN
+        source ~/.bashrc
+        ~/.acme.sh/acme.sh --issue -d $DOMAIN --standalone --force
+        mkdir -p /etc/tuic/certs
+        ~/.acme.sh/acme.sh --install-cert -d $DOMAIN \
+            --key-file /etc/tuic/certs/server.key \
+            --fullchain-file /etc/tuic/certs/server.crt
+        CERT_PATH="/etc/tuic/certs/server.crt"
+        KEY_PATH="/etc/tuic/certs/server.key"
     fi
 
-    # 3. 生成 JSON 配置文件 (移除冗余字段)
+    # 生成 JSON 配置文件
     mkdir -p /etc/tuic
     cat << EOF > /etc/tuic/config.json
 {
@@ -77,7 +131,7 @@ install_tuic() {
 }
 EOF
 
-    # 4. 创建 Systemd 服务
+    # 创建 Systemd 服务
     cat << EOF > /etc/systemd/system/tuic.service
 [Unit]
 Description=TUIC v5 Server Service
@@ -96,7 +150,7 @@ LimitNOFILE=512000
 WantedBy=multi-user.target
 EOF
 
-    # 5. 启动服务
+    # 启动服务
     systemctl daemon-reload
     systemctl enable tuic
     systemctl restart tuic
@@ -108,7 +162,7 @@ EOF
     echo -e "UUID: ${YELLOW}$USER_UUID${NC}"
     echo -e "Token: ${YELLOW}$PASSWORD${NC}"
     echo -e "----------------------------------------"
-    echo -e "Surge 配置参考 (已更新 token 字段):"
+    echo -e "Surge 配置参考 (可直接复制):"
     echo -e "${GREEN}TUIC-Node = tuic, $DOMAIN, $PORT, token=$PASSWORD, uuid=$USER_UUID, sni=$DOMAIN, skip-cert-verify=false, alpn=h3${NC}"
     echo -e "${GREEN}========================================${NC}"
 }
@@ -134,13 +188,17 @@ echo "1. 安装 / 覆盖安装"
 echo "2. 卸载"
 echo "3. 重启服务"
 echo "4. 查看实时日志"
-echo "5. 退出"
-read -p "请选择 [1-5]: " opt
+echo "5. 查看当前配置"
+echo "6. 修改端口和 Token"
+echo "7. 退出"
+read -p "请选择 [1-7]: " opt
 
 case $opt in
     1) install_tuic ;;
     2) uninstall_tuic ;;
     3) systemctl restart tuic && echo -e "${GREEN}已重启${NC}" ;;
     4) journalctl -u tuic -f ;;
+    5) view_config ;;
+    6) modify_config ;;
     *) exit 0 ;;
 esac
