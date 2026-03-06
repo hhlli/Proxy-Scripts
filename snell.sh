@@ -71,14 +71,14 @@ install_snell_core() {
     echo -e "${CYAN}[1/5] 更新系统依赖...${NC}"
     export DEBIAN_FRONTEND=noninteractive
     export NEEDRESTART_MODE=a
-    apt-get update -y >/dev/null 2>&1
-    apt-get install -y unzip curl >/dev/null 2>&1
+    apt-get update -y
+    apt-get install -y unzip curl
     
     echo -e "${CYAN}[2/5] 下载 Snell v5 核心...${NC}"
-    wget -q -O /tmp/snell.zip $url
+    wget -O /tmp/snell.zip $url
 
     echo -e "${CYAN}[3/5] 解压并安装...${NC}"
-    unzip -o -q /tmp/snell.zip -d /usr/local/bin/
+    unzip -o /tmp/snell.zip -d /usr/local/bin/
     chmod +x /usr/local/bin/snell-server
     rm -f /tmp/snell.zip
 
@@ -128,7 +128,7 @@ install_shadowtls_core() {
     fi
 
     echo -e "${CYAN}[1/3] 下载 ShadowTLS 核心...${NC}"
-    wget -q -O /usr/local/bin/shadowtls $stls_url
+    wget -O /usr/local/bin/shadowtls $stls_url
     chmod +x /usr/local/bin/shadowtls
 
     echo -e "${CYAN}[2/3] 创建服务与转发规则...${NC}"
@@ -192,6 +192,8 @@ menu_view_config() {
     SNELL_LISTEN=$(grep "listen =" /etc/snell/snell-server.conf | tr -d ' ' | awk -F= '{print $2}')
     SNELL_PORT=$(echo "$SNELL_LISTEN" | awk -F: '{print $NF}')
     SNELL_PSK=$(grep "psk =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+    
+    VPS_IP=$(curl -s4 -m 5 api.ipify.org || curl -s4 -m 5 ifconfig.me || echo "获取失败_请手动替换IP")
 
     echo -e "${GREEN}=== 当前配置详情 ===${NC}"
     
@@ -207,14 +209,14 @@ menu_view_config() {
         echo -e "Snell 密码: $SNELL_PSK"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
-        echo -e "${GREEN}Snell-STLS = snell, 实际ip, $STLS_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3, ecn=true${NC}"
+        echo -e "${GREEN}Snell-STLS = snell, $VPS_IP, $STLS_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3, ecn=true${NC}"
     else
         echo -e "模式: 直连 (仅 Snell)"
         echo -e "监听端口: $SNELL_PORT"
         echo -e "Snell 密码: $SNELL_PSK"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
-        echo -e "${GREEN}Snell-Direct = snell, 实际ip, $SNELL_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, ecn=true${NC}"
+        echo -e "${GREEN}Snell-Direct = snell, $VPS_IP, $SNELL_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, ecn=true${NC}"
     fi
 }
 
