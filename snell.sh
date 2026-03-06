@@ -71,14 +71,14 @@ install_snell_core() {
     echo -e "${CYAN}[1/5] 更新系统依赖...${NC}"
     export DEBIAN_FRONTEND=noninteractive
     export NEEDRESTART_MODE=a
-    apt-get update -y
-    apt-get install -y unzip curl
+    apt-get update -y >/dev/null 2>&1
+    apt-get install -y unzip curl >/dev/null 2>&1
     
     echo -e "${CYAN}[2/5] 下载 Snell v5 核心...${NC}"
-    wget -O /tmp/snell.zip $url
+    wget -q -O /tmp/snell.zip $url
 
     echo -e "${CYAN}[3/5] 解压并安装...${NC}"
-    unzip -o /tmp/snell.zip -d /usr/local/bin/
+    unzip -o -q /tmp/snell.zip -d /usr/local/bin/
     chmod +x /usr/local/bin/snell-server
     rm -f /tmp/snell.zip
 
@@ -128,7 +128,7 @@ install_shadowtls_core() {
     fi
 
     echo -e "${CYAN}[1/3] 下载 ShadowTLS 核心...${NC}"
-    wget -O /usr/local/bin/shadowtls $stls_url
+    wget -q -O /usr/local/bin/shadowtls $stls_url
     chmod +x /usr/local/bin/shadowtls
 
     echo -e "${CYAN}[2/3] 创建服务与转发规则...${NC}"
@@ -207,14 +207,14 @@ menu_view_config() {
         echo -e "Snell 密码: $SNELL_PSK"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
-        echo -e "${GREEN}Snell-STLS = snell, 你的IP, $STLS_PORT, psk=$SNELL_PSK, version=5, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3${NC}"
+        echo -e "${GREEN}Snell-STLS = snell, 实际ip, $STLS_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3, ecn=true${NC}"
     else
         echo -e "模式: 直连 (仅 Snell)"
         echo -e "监听端口: $SNELL_PORT"
         echo -e "Snell 密码: $SNELL_PSK"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
-        echo -e "${GREEN}Snell-Direct = snell, 你的IP, $SNELL_PORT, psk=$SNELL_PSK, version=5${NC}"
+        echo -e "${GREEN}Snell-Direct = snell, 实际ip, $SNELL_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, ecn=true${NC}"
     fi
 }
 
@@ -226,27 +226,41 @@ menu_modify_config() {
 
     if [ -f "/etc/systemd/system/shadowtls.service" ]; then
         echo -e "当前模式: Snell + ShadowTLS"
-        read -p "设置新的公网对外端口: " NEW_PORT
+        OLD_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
+        OLD_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
+
+        read -p "设置新的公网对外端口 (当前: $OLD_PORT, 回车保持不变): " NEW_PORT
+        NEW_PORT=${NEW_PORT:-$OLD_PORT}
+
+        read -p "设置新的伪装 SNI 域名 (当前: $OLD_SNI, 回车保持不变): " NEW_SNI
+        NEW_SNI=${NEW_SNI:-$OLD_SNI}
+
         NEW_STLS_PASS=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
         NEW_SNELL_PSK=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)
 
         sed -i "s/psk = .*/psk = $NEW_SNELL_PSK/" /etc/snell/snell-server.conf
         sed -i "s/^Environment=\"STLS_PORT=.*/Environment=\"STLS_PORT=$NEW_PORT\"/" /etc/systemd/system/shadowtls.service
+        sed -i "s/^Environment=\"STLS_SNI=.*/Environment=\"STLS_SNI=$NEW_SNI\"/" /etc/systemd/system/shadowtls.service
         sed -i "s/^Environment=\"STLS_PASS=.*/Environment=\"STLS_PASS=$NEW_STLS_PASS\"/" /etc/systemd/system/shadowtls.service
         
         systemctl daemon-reload
         systemctl restart snell shadowtls
-        echo -e "${GREEN}配置已更新。${NC}"
+        echo -e "${GREEN}配置已更新 (密码已自动重新生成)。${NC}"
     else
         echo -e "当前模式: 仅 Snell"
-        read -p "设置新的公网端口: " NEW_PORT
+        SNELL_LISTEN=$(grep "listen =" /etc/snell/snell-server.conf | tr -d ' ' | awk -F= '{print $2}')
+        OLD_PORT=$(echo "$SNELL_LISTEN" | awk -F: '{print $NF}')
+
+        read -p "设置新的公网端口 (当前: $OLD_PORT, 回车保持不变): " NEW_PORT
+        NEW_PORT=${NEW_PORT:-$OLD_PORT}
+
         NEW_SNELL_PSK=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)
         
         sed -i -E "s/listen = 0\.0\.0\.0:[0-9]+/listen = 0.0.0.0:$NEW_PORT/" /etc/snell/snell-server.conf
         sed -i "s/psk = .*/psk = $NEW_SNELL_PSK/" /etc/snell/snell-server.conf
         
         systemctl restart snell
-        echo -e "${GREEN}配置已更新。${NC}"
+        echo -e "${GREEN}配置已更新 (密码已自动重新生成)。${NC}"
     fi
     menu_view_config
 }
