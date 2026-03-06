@@ -55,6 +55,10 @@ install_snell_core() {
     local LISTEN_IP=$1
     local PORT=$2
     local PSK=$3
+    local DNS=$4
+    local IPV6=$5
+    local OBFS=$6
+    local TFO=$7
 
     clean_alien_snell "quiet"
 
@@ -71,14 +75,14 @@ install_snell_core() {
     echo -e "${CYAN}[1/5] 更新系统依赖...${NC}"
     export DEBIAN_FRONTEND=noninteractive
     export NEEDRESTART_MODE=a
-    apt-get update -y
-    apt-get install -y unzip curl
+    apt-get update -y >/dev/null 2>&1
+    apt-get install -y unzip curl >/dev/null 2>&1
     
     echo -e "${CYAN}[2/5] 下载 Snell v5 核心...${NC}"
-    wget -O /tmp/snell.zip $url
+    wget -q -O /tmp/snell.zip $url
 
     echo -e "${CYAN}[3/5] 解压并安装...${NC}"
-    unzip -o /tmp/snell.zip -d /usr/local/bin/
+    unzip -o -q /tmp/snell.zip -d /usr/local/bin/
     chmod +x /usr/local/bin/snell-server
     rm -f /tmp/snell.zip
 
@@ -88,7 +92,10 @@ install_snell_core() {
 [snell-server]
 listen = $LISTEN_IP:$PORT
 psk = $PSK
-ipv6 = false
+ipv6 = $IPV6
+dns = $DNS
+obfs = $OBFS
+tfo = $TFO
 EOF
 
     echo -e "${CYAN}[5/5] 创建并启动服务...${NC}"
@@ -128,7 +135,7 @@ install_shadowtls_core() {
     fi
 
     echo -e "${CYAN}[1/3] 下载 ShadowTLS 核心...${NC}"
-    wget -O /usr/local/bin/shadowtls $stls_url
+    wget -q -O /usr/local/bin/shadowtls $stls_url
     chmod +x /usr/local/bin/shadowtls
 
     echo -e "${CYAN}[2/3] 创建服务与转发规则...${NC}"
@@ -162,7 +169,19 @@ menu_install_snell() {
     PORT=${PORT:-10086}
     PSK=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)
     
-    install_snell_core "0.0.0.0" "$PORT" "$PSK"
+    read -p "设置 DNS (默认 1.1.1.1, 2001:4860:4860::8888): " SNELL_DNS
+    SNELL_DNS=${SNELL_DNS:-"1.1.1.1, 2001:4860:4860::8888"}
+    
+    read -p "是否启用 IPv6 (true/false，默认 false): " SNELL_IPV6
+    SNELL_IPV6=${SNELL_IPV6:-false}
+    
+    read -p "设置 obfs 混淆 (off/http/tls，默认 off): " SNELL_OBFS
+    SNELL_OBFS=${SNELL_OBFS:-off}
+    
+    read -p "是否启用 TFO (true/false，默认 true): " SNELL_TFO
+    SNELL_TFO=${SNELL_TFO:-true}
+    
+    install_snell_core "0.0.0.0" "$PORT" "$PSK" "$SNELL_DNS" "$SNELL_IPV6" "$SNELL_OBFS" "$SNELL_TFO"
     menu_view_config
 }
 
@@ -172,11 +191,23 @@ menu_install_combo() {
     read -p "设置伪装 SNI 域名 (默认 gateway.icloud.com): " STLS_SNI
     STLS_SNI=${STLS_SNI:-gateway.icloud.com}
 
+    read -p "设置 Snell DNS (默认 1.1.1.1, 2001:4860:4860::8888): " SNELL_DNS
+    SNELL_DNS=${SNELL_DNS:-"1.1.1.1, 2001:4860:4860::8888"}
+    
+    read -p "是否启用 Snell IPv6 (true/false，默认 false): " SNELL_IPV6
+    SNELL_IPV6=${SNELL_IPV6:-false}
+    
+    read -p "设置 Snell obfs 混淆 (off/http/tls，默认 off): " SNELL_OBFS
+    SNELL_OBFS=${SNELL_OBFS:-off}
+    
+    read -p "是否启用 Snell TFO (true/false，默认 true): " SNELL_TFO
+    SNELL_TFO=${SNELL_TFO:-true}
+
     SNELL_PORT=$(shuf -i 10000-65000 -n 1)
     SNELL_PSK=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)
     STLS_PASS=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
 
-    install_snell_core "127.0.0.1" "$SNELL_PORT" "$SNELL_PSK"
+    install_snell_core "127.0.0.1" "$SNELL_PORT" "$SNELL_PSK" "$SNELL_DNS" "$SNELL_IPV6" "$SNELL_OBFS" "$SNELL_TFO"
     install_shadowtls_core "$STLS_PORT" "$SNELL_PORT" "$STLS_SNI" "$STLS_PASS"
 
     sleep 1
@@ -192,10 +223,24 @@ menu_view_config() {
     SNELL_LISTEN=$(grep "listen =" /etc/snell/snell-server.conf | tr -d ' ' | awk -F= '{print $2}')
     SNELL_PORT=$(echo "$SNELL_LISTEN" | awk -F: '{print $NF}')
     SNELL_PSK=$(grep "psk =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
-    
+    SNELL_DNS=$(grep "dns =" /etc/snell/snell-server.conf | cut -d= -f2- | sed 's/^[ \t]*//')
+    SNELL_IPV6=$(grep "ipv6 =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+    SNELL_OBFS=$(grep "obfs =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+    SNELL_TFO=$(grep "tfo =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+
     VPS_IP=$(curl -s4 -m 5 api.ipify.org || curl -s4 -m 5 ifconfig.me || echo "获取失败_请手动替换IP")
+    
+    OBFS_STR=""
+    if [[ "$SNELL_OBFS" == "http" || "$SNELL_OBFS" == "tls" ]]; then
+        OBFS_STR=", obfs=$SNELL_OBFS"
+    fi
 
     echo -e "${GREEN}=== 当前配置详情 ===${NC}"
+    echo -e "DNS: ${SNELL_DNS:-未配置}"
+    echo -e "IPv6: ${SNELL_IPV6:-未配置}"
+    echo -e "obfs: ${SNELL_OBFS:-off}"
+    echo -e "tfo: ${SNELL_TFO:-未配置}"
+    echo -e "Snell 密码: $SNELL_PSK"
     
     if [ -f "/etc/systemd/system/shadowtls.service" ]; then
         STLS_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
@@ -206,17 +251,26 @@ menu_view_config() {
         echo -e "对外端口: $STLS_PORT"
         echo -e "伪装 SNI: $STLS_SNI"
         echo -e "STLS密码: $STLS_PASS"
-        echo -e "Snell 密码: $SNELL_PSK"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
-        echo -e "${GREEN}Snell-STLS = snell, $VPS_IP, $STLS_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3, ecn=true${NC}"
+        echo -e "${GREEN}Snell-STLS = snell, $VPS_IP, $STLS_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=${SNELL_TFO:-true}${OBFS_STR}, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3, ecn=true${NC}"
     else
         echo -e "模式: 直连 (仅 Snell)"
         echo -e "监听端口: $SNELL_PORT"
-        echo -e "Snell 密码: $SNELL_PSK"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
-        echo -e "${GREEN}Snell-Direct = snell, $VPS_IP, $SNELL_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=true, ecn=true${NC}"
+        echo -e "${GREEN}Snell-Direct = snell, $VPS_IP, $SNELL_PORT, psk=$SNELL_PSK, version=5, reuse=true, tfo=${SNELL_TFO:-true}${OBFS_STR}, ecn=true${NC}"
+    fi
+}
+
+set_snell_conf() {
+    local key=$1
+    local value=$2
+    local file="/etc/snell/snell-server.conf"
+    if grep -q "^${key} =" "$file"; then
+        sed -i "s|^${key} =.*|${key} = ${value}|" "$file"
+    else
+        echo "${key} = ${value}" >> "$file"
     fi
 }
 
@@ -226,44 +280,67 @@ menu_modify_config() {
         return
     fi
 
+    OLD_DNS=$(grep "dns =" /etc/snell/snell-server.conf | cut -d= -f2- | sed 's/^[ \t]*//')
+    OLD_IPV6=$(grep "ipv6 =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+    OLD_OBFS=$(grep "obfs =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+    OLD_TFO=$(grep "tfo =" /etc/snell/snell-server.conf | awk -F= '{print $2}' | tr -d ' ')
+
+    OLD_DNS=${OLD_DNS:-"1.1.1.1, 2001:4860:4860::8888"}
+    OLD_IPV6=${OLD_IPV6:-"false"}
+    OLD_OBFS=${OLD_OBFS:-"off"}
+    OLD_TFO=${OLD_TFO:-"true"}
+
     if [ -f "/etc/systemd/system/shadowtls.service" ]; then
         echo -e "当前模式: Snell + ShadowTLS"
         OLD_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
         OLD_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
 
-        read -p "设置新的公网对外端口 (当前: $OLD_PORT, 回车保持不变): " NEW_PORT
+        read -p "设置对外端口 (当前: $OLD_PORT，回车保持): " NEW_PORT
         NEW_PORT=${NEW_PORT:-$OLD_PORT}
 
-        read -p "设置新的伪装 SNI 域名 (当前: $OLD_SNI, 回车保持不变): " NEW_SNI
+        read -p "设置伪装 SNI 域名 (当前: $OLD_SNI，回车保持): " NEW_SNI
         NEW_SNI=${NEW_SNI:-$OLD_SNI}
 
         NEW_STLS_PASS=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
         NEW_SNELL_PSK=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)
 
-        sed -i "s/psk = .*/psk = $NEW_SNELL_PSK/" /etc/snell/snell-server.conf
+        set_snell_conf "psk" "$NEW_SNELL_PSK"
         sed -i "s/^Environment=\"STLS_PORT=.*/Environment=\"STLS_PORT=$NEW_PORT\"/" /etc/systemd/system/shadowtls.service
         sed -i "s/^Environment=\"STLS_SNI=.*/Environment=\"STLS_SNI=$NEW_SNI\"/" /etc/systemd/system/shadowtls.service
         sed -i "s/^Environment=\"STLS_PASS=.*/Environment=\"STLS_PASS=$NEW_STLS_PASS\"/" /etc/systemd/system/shadowtls.service
-        
-        systemctl daemon-reload
-        systemctl restart snell shadowtls
-        echo -e "${GREEN}配置已更新 (密码已自动重新生成)。${NC}"
     else
         echo -e "当前模式: 仅 Snell"
         SNELL_LISTEN=$(grep "listen =" /etc/snell/snell-server.conf | tr -d ' ' | awk -F= '{print $2}')
         OLD_PORT=$(echo "$SNELL_LISTEN" | awk -F: '{print $NF}')
 
-        read -p "设置新的公网端口 (当前: $OLD_PORT, 回车保持不变): " NEW_PORT
+        read -p "设置公网端口 (当前: $OLD_PORT，回车保持): " NEW_PORT
         NEW_PORT=${NEW_PORT:-$OLD_PORT}
 
         NEW_SNELL_PSK=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)
         
         sed -i -E "s/listen = 0\.0\.0\.0:[0-9]+/listen = 0.0.0.0:$NEW_PORT/" /etc/snell/snell-server.conf
-        sed -i "s/psk = .*/psk = $NEW_SNELL_PSK/" /etc/snell/snell-server.conf
-        
-        systemctl restart snell
-        echo -e "${GREEN}配置已更新 (密码已自动重新生成)。${NC}"
+        set_snell_conf "psk" "$NEW_SNELL_PSK"
     fi
+
+    read -p "设置 DNS (当前: $OLD_DNS，回车保持): " NEW_DNS
+    NEW_DNS=${NEW_DNS:-$OLD_DNS}
+    read -p "是否启用 IPv6 (当前: $OLD_IPV6，回车保持): " NEW_IPV6
+    NEW_IPV6=${NEW_IPV6:-$OLD_IPV6}
+    read -p "设置 obfs (当前: $OLD_OBFS，回车保持): " NEW_OBFS
+    NEW_OBFS=${NEW_OBFS:-$OLD_OBFS}
+    read -p "是否启用 TFO (当前: $OLD_TFO，回车保持): " NEW_TFO
+    NEW_TFO=${NEW_TFO:-$OLD_TFO}
+
+    set_snell_conf "dns" "$NEW_DNS"
+    set_snell_conf "ipv6" "$NEW_IPV6"
+    set_snell_conf "obfs" "$NEW_OBFS"
+    set_snell_conf "tfo" "$NEW_TFO"
+
+    systemctl daemon-reload
+    systemctl restart snell
+    [ -f "/etc/systemd/system/shadowtls.service" ] && systemctl restart shadowtls
+    
+    echo -e "${GREEN}配置已更新。${NC}"
     menu_view_config
 }
 
