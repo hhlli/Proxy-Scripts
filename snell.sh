@@ -10,7 +10,7 @@ NC='\033[0m'
 
 clean_alien_snell() {
     local quiet=$1
-    [[ -z "$quiet" ]] && echo -e "${YELLOW}正在扫描并清理系统中的所有旧版/异形 Snell 残留...${NC}"
+    [[ -z "$quiet" ]] && echo -e "${YELLOW}正在清理旧版/异形 Snell 残留...${NC}"
     
     ALIEN_SERVICES=$(systemctl list-unit-files | grep -i snell | grep -v "shadowtls" | awk '{print $1}')
     for svc in $ALIEN_SERVICES; do
@@ -34,9 +34,7 @@ check_status() {
     ALIEN_PID=$(pgrep -x "snell-server" | head -n 1)
     if [ -n "$ALIEN_PID" ]; then
         ALIEN_EXE=$(readlink -f /proc/$ALIEN_PID/exe 2>/dev/null)
-        echo -e "${YELLOW}警告: 检测到未知版本/路径的 Snell 正在运行!${NC}"
-        echo -e "      (PID: $ALIEN_PID, 路径: $ALIEN_EXE)"
-        echo -e "      建议先使用选项 7 卸载清理，再重新安装。\n"
+        echo -e "${YELLOW}警告: 检测到未知版本的 Snell 正在运行! (PID: $ALIEN_PID)${NC}"
     fi
 
     if systemctl is-active --quiet snell; then
@@ -70,7 +68,6 @@ install_snell_core() {
         echo -e "${RED}不支持的架构!${NC}" && exit 1
     fi
 
-    # 修改为非交互模式，防止中断 SSH
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq unzip curl >/dev/null 2>&1
@@ -168,6 +165,8 @@ menu_install_combo() {
     install_shadowtls_core "$STLS_PORT" "$SNELL_PORT" "$STLS_SNI" "$STLS_PASS"
 
     echo -e "${GREEN}Snell + ShadowTLS 组合安装完成!${NC}"
+    # 等待一秒确保服务配置落盘
+    sleep 1
     menu_view_config
 }
 
@@ -183,7 +182,8 @@ menu_view_config() {
 
     echo -e "${GREEN}=== 当前配置详情 ===${NC}"
     
-    if [ -f "/etc/systemd/system/shadowtls.service" ] && systemctl is-active --quiet shadowtls; then
+    # 修复点：只要服务文件存在即认为是组合模式，不再依赖实时的 is-active 状态
+    if [ -f "/etc/systemd/system/shadowtls.service" ]; then
         EXEC_LINE=$(grep "ExecStart" /etc/systemd/system/shadowtls.service)
         STLS_PORT=$(echo "$EXEC_LINE" | awk '{print $4}' | awk -F: '{print $2}')
         STLS_SNI=$(echo "$EXEC_LINE" | awk '{print $6}' | awk -F: '{print $1}')
@@ -196,6 +196,7 @@ menu_view_config() {
         echo -e "Snell 密码: ${YELLOW}$SNELL_PSK${NC}"
         echo -e "----------------------------------------"
         echo -e "Surge 配置参考:"
+        # 在组合模式下，Surge 填写的端口必须是 STLS_PORT
         echo -e "${GREEN}Snell-STLS = snell, 你的IP, $STLS_PORT, psk=$SNELL_PSK, version=5, shadow-tls-password=$STLS_PASS, shadow-tls-sni=$STLS_SNI, shadow-tls-version=3${NC}"
     else
         echo -e "模式: ${YELLOW}直连 (仅 Snell)${NC}"
