@@ -198,9 +198,9 @@ menu_view_config() {
     echo -e "${GREEN}=== 当前配置详情 ===${NC}"
     
     if [ -f "/etc/systemd/system/shadowtls.service" ]; then
-        STLS_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
-        STLS_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
-        STLS_PASS=$(grep 'Environment="STLS_PASS=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
+        STLS_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
+        STLS_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
+        STLS_PASS=$(grep 'Environment="STLS_PASS=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
 
         echo -e "模式: 组合 (ShadowTLS接管公网)"
         echo -e "对外端口: $STLS_PORT"
@@ -228,8 +228,8 @@ menu_modify_config() {
 
     if [ -f "/etc/systemd/system/shadowtls.service" ]; then
         echo -e "当前模式: Snell + ShadowTLS"
-        OLD_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
-        OLD_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
+        OLD_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
+        OLD_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | awk -F'=' '{print $3}' | tr -d '"')
 
         read -p "设置新的公网对外端口 (当前: $OLD_PORT, 回车保持不变): " NEW_PORT
         NEW_PORT=${NEW_PORT:-$OLD_PORT}
