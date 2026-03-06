@@ -123,6 +123,7 @@ install_shadowtls_core() {
     wget -q -O /usr/local/bin/shadowtls $stls_url
     chmod +x /usr/local/bin/shadowtls
 
+    # 修复点：加入 server 子命令和明确的参数标志
     cat << EOF > /etc/systemd/system/shadowtls.service
 [Unit]
 Description=ShadowTLS v3 Server
@@ -134,7 +135,7 @@ Environment="STLS_PORT=$EXTERNAL_PORT"
 Environment="SNELL_PORT=$INTERNAL_PORT"
 Environment="STLS_SNI=$SNI"
 Environment="STLS_PASS=$PASS"
-ExecStart=/bin/sh -c 'exec /usr/local/bin/shadowtls --v3 0.0.0.0:\${STLS_PORT} 127.0.0.1:\${SNELL_PORT} \${STLS_SNI}:443 \${STLS_PASS}'
+ExecStart=/usr/local/bin/shadowtls server --listen 0.0.0.0:\${STLS_PORT} --server 127.0.0.1:\${SNELL_PORT} --tls \${STLS_SNI}:443 --password \${STLS_PASS}
 Restart=on-failure
 RestartSec=5s
 
@@ -187,6 +188,7 @@ menu_view_config() {
     echo -e "${GREEN}=== 当前配置详情 ===${NC}"
     
     if [ -f "/etc/systemd/system/shadowtls.service" ]; then
+        # 稳定的配置提取逻辑
         STLS_PORT=$(grep 'Environment="STLS_PORT=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
         STLS_SNI=$(grep 'Environment="STLS_SNI=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
         STLS_PASS=$(grep 'Environment="STLS_PASS=' /etc/systemd/system/shadowtls.service | cut -d= -f2- | tr -d '"')
