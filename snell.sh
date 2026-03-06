@@ -21,7 +21,7 @@ clean_alien_snell() {
         fi
     done
 
-    pkill -9 -x "snell-server" 2>/dev/null
+    pkill -9 -x "snell-server"
     
     rm -f /usr/local/bin/snell-server /usr/bin/snell-server /usr/local/bin/snell
     rm -rf /etc/snell-server /etc/snell
@@ -75,8 +75,8 @@ install_snell_core() {
     echo -e "${CYAN}[1/5] 更新系统依赖...${NC}"
     export DEBIAN_FRONTEND=noninteractive
     export NEEDRESTART_MODE=a
-    apt-get update -y >/dev/null 2>&1
-    apt-get install -y unzip curl >/dev/null 2>&1
+    apt-get update -y
+    apt-get install -y unzip curl
     
     echo -e "${CYAN}[2/5] 下载 Snell v5 核心...${NC}"
     wget -q -O /tmp/snell.zip $url
@@ -135,7 +135,7 @@ install_shadowtls_core() {
     fi
 
     echo -e "${CYAN}[1/3] 下载 ShadowTLS 核心...${NC}"
-    wget -q -O /usr/local/bin/shadowtls $stls_url
+    wget -O /usr/local/bin/shadowtls $stls_url
     chmod +x /usr/local/bin/shadowtls
 
     echo -e "${CYAN}[2/3] 创建服务与转发规则...${NC}"
@@ -368,8 +368,8 @@ menu_uninstall() {
     read -p "确认完全卸载? (y/N): " CONFIRM
     if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
         clean_alien_snell "quiet"
-        systemctl stop shadowtls 2>/dev/null
-        systemctl disable shadowtls 2>/dev/null
+        systemctl stop shadowtls
+        systemctl disable shadowtls
         rm -f /usr/local/bin/shadowtls /etc/systemd/system/shadowtls.service
         systemctl daemon-reload
         echo -e "${GREEN}卸载完成。${NC}"
