@@ -11,9 +11,9 @@ NC='\033[0m'
 check_status() {
     echo -e "${CYAN}--- 服务状态检测 ---${NC}"
     if systemctl is-active --quiet xray; then
-        echo -e "Xray 服务: ${GREEN}运行中${NC}"
+        echo -e "Xray (VLESS) 服务: ${GREEN}运行中${NC}"
     else
-        echo -e "Xray 服务: ${RED}未安装或停止${NC}"
+        echo -e "Xray (VLESS) 服务: ${RED}未安装或停止${NC}"
     fi
     echo -e "${CYAN}--------------------${NC}\n"
 }
@@ -37,7 +37,7 @@ install_xray_core() {
 
     clean_xray
 
-    echo -e "${YELLOW}--- 开始部署 Xray (VLESS+REALITY) ---${NC}"
+    echo -e "${YELLOW}--- 开始部署 VLESS+REALITY ---${NC}"
     
     echo -e "${CYAN}[1/5] 更新系统依赖...${NC}"
     export DEBIAN_FRONTEND=noninteractive
@@ -135,13 +135,12 @@ WantedBy=multi-user.target
 EOF
     echo -e "-> 已生成: /etc/systemd/system/xray.service"
     
-    # 保存公钥用于信息展示
     echo "$PUBLIC_KEY" > /usr/local/etc/xray/public.key
 
     systemctl daemon-reload
     systemctl enable --now xray
     echo -e "-> 系统服务 xray 已设置为开机自启并拉起"
-    echo -e "${GREEN}Xray 部署完成。${NC}\n"
+    echo -e "${GREEN}VLESS+REALITY 部署完成。${NC}\n"
 }
 
 menu_install() {
@@ -150,7 +149,6 @@ menu_install() {
     read -p "设置伪装 SNI 域名 (默认 gateway.icloud.com): " SNI
     SNI=${SNI:-gateway.icloud.com}
 
-    # 如果系统未安装xray，先临时下载用于生成密钥
     if [ ! -f "/usr/local/bin/xray" ]; then
         apt-get update -y
         apt-get install -y wget unzip
@@ -176,7 +174,7 @@ menu_install() {
 
 menu_view_config() {
     if [ ! -f "/usr/local/etc/xray/config.json" ]; then
-        echo -e "${RED}未找到 Xray 配置文件。${NC}"
+        echo -e "${RED}未找到配置文件。${NC}"
         return
     fi
 
@@ -198,13 +196,13 @@ menu_view_config() {
     echo -e "Short ID: $SHORT_ID"
     echo -e "Flow: xtls-rprx-vision"
     echo -e "----------------------------------------"
-    echo -e "Surge 配置参考:"
-    echo -e "${GREEN}VLESS-Reality = vless, $VPS_IP, $PORT, username=$UUID, ws=false, tls=true, tls-host=$SNI, reality-public-key=$PUBLIC_KEY, reality-short-id=$SHORT_ID, client-fingerprint=chrome, flow=xtls-rprx-vision${NC}"
+    echo -e "Loon 配置参考:"
+    echo -e "${GREEN}VLESS-Reality = VLESS, $VPS_IP, $PORT, $UUID, tls=true, tls-name=$SNI, reality-public-key=$PUBLIC_KEY, reality-short-id=$SHORT_ID, flow=xtls-rprx-vision${NC}"
 }
 
 menu_modify_config() {
     if [ ! -f "/usr/local/etc/xray/config.json" ]; then
-        echo -e "${RED}未找到 Xray 配置文件。${NC}"
+        echo -e "${RED}未找到配置文件。${NC}"
         return
     fi
 
@@ -231,6 +229,25 @@ menu_view_logs() {
     journalctl -u xray -f
 }
 
+menu_check_update() {
+    if [ ! -f "/usr/local/bin/xray" ]; then
+        echo -e "${RED}未安装。${NC}"
+        return
+    fi
+    
+    LOCAL_VER=$(/usr/local/bin/xray version | head -n 1 | awk '{print $2}')
+    echo -e "当前本地版本: ${LOCAL_VER:-未知}"
+    
+    LATEST_VER=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    echo -e "GitHub 最新版本: ${LATEST_VER:-获取失败}"
+    
+    if [[ "$LOCAL_VER" != "$LATEST_VER" && -n "$LATEST_VER" ]]; then
+        echo -e "${YELLOW}发现新版本，若需更新请重新选择 [1] 执行安装。${NC}"
+    else
+        echo -e "${GREEN}当前已是最新版本。${NC}"
+    fi
+}
+
 menu_uninstall() {
     read -p "确认完全卸载? (y/N): " CONFIRM
     if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
@@ -242,20 +259,22 @@ menu_uninstall() {
 clear
 check_status
 
-echo "1. 安装 Xray (VLESS+REALITY)"
+echo "1. 安装 VLESS+REALITY"
 echo "2. 查看配置"
 echo "3. 修改配置 (端口/SNI)"
 echo "4. 查看运行状态"
-echo "5. 卸载"
-echo "6. 退出"
-read -p "选择 [1-6]: " opt
+echo "5. 检查更新"
+echo "6. 卸载"
+echo "7. 退出"
+read -p "选择 [1-7]: " opt
 
 case $opt in
     1) menu_install ;;
     2) menu_view_config ;;
     3) menu_modify_config ;;
     4) menu_view_logs ;;
-    5) menu_uninstall ;;
-    6) exit 0 ;;
+    5) menu_check_update ;;
+    6) menu_uninstall ;;
+    7) exit 0 ;;
     *) exit 1 ;;
 esac
