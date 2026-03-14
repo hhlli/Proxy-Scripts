@@ -30,10 +30,6 @@ clean_xray() {
 install_xray_core() {
     local PORT=$1
     local SNI=$2
-    local UUID=$3
-    local PRIVATE_KEY=$4
-    local PUBLIC_KEY=$5
-    local SHORT_ID=$6
 
     clean_xray
 
@@ -60,6 +56,13 @@ install_xray_core() {
     unzip -o /tmp/xray.zip xray -d /usr/local/bin/
     chmod +x /usr/local/bin/xray
     rm -f /tmp/xray.zip
+
+    # 核心安装完成后，直接使用官方可执行文件生成参数
+    UUID=$(/usr/local/bin/xray uuid)
+    KEYS=$(/usr/local/bin/xray x25519)
+    PRIVATE_KEY=$(echo "$KEYS" | grep -i "Private key" | awk -F ':' '{print $2}' | tr -d ' ')
+    PUBLIC_KEY=$(echo "$KEYS" | grep -i "Public key" | awk -F ':' '{print $2}' | tr -d ' ')
+    SHORT_ID=$(openssl rand -hex 8)
 
     echo -e "${CYAN}[4/5] 生成配置文件...${NC}"
     mkdir -p /usr/local/etc/xray
@@ -149,26 +152,7 @@ menu_install() {
     read -p "设置伪装 SNI 域名 (默认 gateway.icloud.com): " SNI
     SNI=${SNI:-gateway.icloud.com}
 
-    if [ ! -f "/usr/local/bin/xray" ]; then
-        apt-get update -y
-        apt-get install -y wget unzip
-        wget -O /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-        unzip -o /tmp/xray.zip xray -d /tmp/
-        chmod +x /tmp/xray
-        XRAY_EXEC="/tmp/xray"
-    else
-        XRAY_EXEC="/usr/local/bin/xray"
-    fi
-
-    UUID=$($XRAY_EXEC uuid)
-    KEYS=$($XRAY_EXEC x25519)
-    PRIVATE_KEY=$(echo "$KEYS" | grep "Private key:" | awk '{print $3}')
-    PUBLIC_KEY=$(echo "$KEYS" | grep "Public key:" | awk '{print $3}')
-    SHORT_ID=$(openssl rand -hex 8)
-
-    install_xray_core "$PORT" "$SNI" "$UUID" "$PRIVATE_KEY" "$PUBLIC_KEY" "$SHORT_ID"
-    
-    [ -f "/tmp/xray" ] && rm -f /tmp/xray
+    install_xray_core "$PORT" "$SNI"
     menu_view_config
 }
 
@@ -197,7 +181,7 @@ menu_view_config() {
     echo -e "Flow: xtls-rprx-vision"
     echo -e "----------------------------------------"
     echo -e "Loon 配置参考:"
-    echo -e "${GREEN}VLESS-Reality = VLESS, $VPS_IP, $PORT, $UUID, tls=true, tls-name=$SNI, reality-public-key=$PUBLIC_KEY, reality-short-id=$SHORT_ID, flow=xtls-rprx-vision${NC}"
+    echo -e "${GREEN}VLESS-Reality = VLESS, $VPS_IP, $PORT, $UUID, tls=true, tls-name=$SNI, client-fingerprint=chrome, reality-public-key=$PUBLIC_KEY, reality-short-id=$SHORT_ID, flow=xtls-rprx-vision${NC}"
 }
 
 menu_modify_config() {
