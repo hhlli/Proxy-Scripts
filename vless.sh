@@ -57,14 +57,21 @@ install_xray_core() {
     chmod +x /usr/local/bin/xray
     rm -f /tmp/xray.zip
 
-    # 核心安装完成后，直接使用官方可执行文件生成参数
+    echo -e "${CYAN}[4/5] 生成 REALITY 密钥与配置文件...${NC}"
+    # 强制写入临时文件并进行字段精确提取
     UUID=$(/usr/local/bin/xray uuid)
-    KEYS=$(/usr/local/bin/xray x25519)
-    PRIVATE_KEY=$(echo "$KEYS" | grep -i "Private key" | awk -F ':' '{print $2}' | tr -d ' ')
-    PUBLIC_KEY=$(echo "$KEYS" | grep -i "Public key" | awk -F ':' '{print $2}' | tr -d ' ')
+    /usr/local/bin/xray x25519 > /tmp/xray_keys.txt
+    PRIVATE_KEY=$(awk '/Private/ {print $NF}' /tmp/xray_keys.txt | tr -d '\r')
+    PUBLIC_KEY=$(awk '/Public/ {print $NF}' /tmp/xray_keys.txt | tr -d '\r')
     SHORT_ID=$(openssl rand -hex 8)
 
-    echo -e "${CYAN}[4/5] 生成配置文件...${NC}"
+    # 完整性阻断校验
+    if [[ -z "$PRIVATE_KEY" || -z "$PUBLIC_KEY" || -z "$UUID" ]]; then
+        echo -e "${RED}致命错误: 无法生成或提取密钥。错误追踪输出如下：${NC}"
+        cat /tmp/xray_keys.txt
+        exit 1
+    fi
+
     mkdir -p /usr/local/etc/xray
     
     cat << EOF > /usr/local/etc/xray/config.json
