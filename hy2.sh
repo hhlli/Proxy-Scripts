@@ -77,15 +77,32 @@ install_hy2() {
         curl https://get.acme.sh | sh -s email=admin@$DOMAIN
     fi
     
-    source ~/.bashrc
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade
-    echo -e "${CYAN}开始申请 TLS 证书...${NC}"
-    ~/.acme.sh/acme.sh --issue -d $DOMAIN --standalone --force
+    # 确保证书申请脚本可执行
+    ACME_BIN="$HOME/.acme.sh/acme.sh"
+
+    echo -e "${CYAN}开始申请 TLS 证书 (首选 ZeroSSL)...${NC}"
+    # 第一次尝试：使用默认 CA (ZeroSSL)
+    if ! $ACME_BIN --issue -d $DOMAIN --standalone --force; then
+        echo -e "${YELLOW}ZeroSSL 申请失败，正在切换至 Let's Encrypt 并重试...${NC}"
+        # 切换默认 CA 为 Let's Encrypt
+        $ACME_BIN --set-default-ca --server letsencrypt
+        # 第二次尝试
+        if ! $ACME_BIN --issue -d $DOMAIN --standalone --force; then
+            echo -e "${RED}错误: 证书申请连续失败 (ZeroSSL & Let's Encrypt)。请检查域名解析和 80 端口是否放行。${NC}"
+            return 1
+        fi
+    fi
 
     mkdir -p /etc/hysteria/certs
-    ~/.acme.sh/acme.sh --install-cert -d $DOMAIN \
+    $ACME_BIN --install-cert -d $DOMAIN \
         --key-file /etc/hysteria/certs/server.key \
         --fullchain-file /etc/hysteria/certs/server.crt
+
+    # 验证文件是否成功生成且非空
+    if [ ! -s /etc/hysteria/certs/server.crt ]; then
+        echo -e "${RED}错误: 证书文件安装失败，文件为空。${NC}"
+        return 1
+    fi
 
     echo -e "${CYAN}生成配置文件...${NC}"
     cat << EOF > /etc/hysteria/config.yaml
