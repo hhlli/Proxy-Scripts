@@ -64,7 +64,53 @@ modify_config() {
     view_config
 }
 
+download_and_replace_core() {
+    local target_version=$1
+    echo -e "${CYAN}开始获取 Sing-box 核心 (版本: v${target_version})...${NC}"
+    
+    arch=$(uname -m)
+    if [ "$arch" == "x86_64" ]; then
+        url="https://github.com/SagerNet/sing-box/releases/download/v${target_version}/sing-box-${target_version}-linux-amd64.tar.gz"
+    elif [ "$arch" == "aarch64" ]; then
+        url="https://github.com/SagerNet/sing-box/releases/download/v${target_version}/sing-box-${target_version}-linux-arm64.tar.gz"
+    else
+        echo -e "${RED}不支持的架构: $arch${NC}" && exit 1
+    fi
+    
+    apt update -y && apt install -y curl tar wget
+    wget -q -O /tmp/sb.tar.gz "$url"
+    tar -xzf /tmp/sb.tar.gz -C /tmp/
+    
+    systemctl stop anytls 2>/dev/null
+    mv /tmp/sing-box-*/sing-box /usr/local/bin/anytls-server
+    chmod +x /usr/local/bin/anytls-server
+    rm -rf /tmp/sb.tar.gz /tmp/sing-box-*
+}
+
 install_anytls() {
+    CONF="/etc/anytls/config.json"
+    
+    if [ -f "$CONF" ]; then
+        OLD_DOMAIN=$(grep '"server_name":' $CONF | awk -F: '{print $2}' | tr -d '", ')
+        OLD_PORT=$(grep '"listen_port":' $CONF | awk -F: '{print $NF}' | tr -d '", ')
+        
+        echo -e "${YELLOW}检测到已有配置 (域名: $OLD_DOMAIN, 端口: $OLD_PORT)。${NC}"
+        read -p "是否保留现有配置，仅执行核心更新？(Y/n，默认保留): " KEEP_CONF
+        KEEP_CONF=${KEEP_CONF:-Y}
+        
+        if [[ "$KEEP_CONF" =~ ^[Yy]$ ]]; then
+            LATEST_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+            [[ -z "$LATEST_VERSION" ]] && LATEST_VERSION="1.11.4"
+            
+            download_and_replace_core "$LATEST_VERSION"
+            systemctl start anytls
+            
+            echo -e "${GREEN}核心更新完成，已成功保留原有配置！${NC}"
+            view_config
+            return
+        fi
+    fi
+
     read -p "设置域名 (请输入域名): " DOMAIN
     read -p "设置端口 (默认 4430): " PORT
     PORT=${PORT:-4430}
@@ -72,25 +118,10 @@ install_anytls() {
     echo -e "${YELLOW}正在自动生成强密码...${NC}"
     PASSWORD=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
     
-    echo -e "${YELLOW}获取 Sing-box 最新版本核心...${NC}"
     LATEST_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
     [[ -z "$LATEST_VERSION" ]] && LATEST_VERSION="1.11.4"
     
-    arch=$(uname -m)
-    if [ "$arch" == "x86_64" ]; then
-        url="https://github.com/SagerNet/sing-box/releases/download/v${LATEST_VERSION}/sing-box-${LATEST_VERSION}-linux-amd64.tar.gz"
-    elif [ "$arch" == "aarch64" ]; then
-        url="https://github.com/SagerNet/sing-box/releases/download/v${LATEST_VERSION}/sing-box-${LATEST_VERSION}-linux-arm64.tar.gz"
-    else
-        echo -e "${RED}不支持的架构: $arch${NC}" && exit 1
-    fi
-    
-    apt update && apt install -y curl tar wget
-    wget -q -O /tmp/sb.tar.gz "$url"
-    tar -xzf /tmp/sb.tar.gz -C /tmp/
-    mv /tmp/sing-box-*/sing-box /usr/local/bin/anytls-server
-    chmod +x /usr/local/bin/anytls-server
-    rm -rf /tmp/sb.tar.gz /tmp/sing-box-*
+    download_and_replace_core "$LATEST_VERSION"
 
     if [ -f "/etc/hysteria/certs/server.crt" ]; then
         echo -e "${GREEN}检测到现有 Hysteria 2 证书，直接复用。${NC}"
@@ -199,6 +230,7 @@ check_update() {
         echo -e "当前本地 Sing-box 核心版本: ${LOCAL_VER:-未知}"
     else
         echo -e "${RED}未安装 AnyTLS (Sing-box 核心)。${NC}"
+        LOCAL_VER="未知"
     fi
     
     echo -e "${YELLOW}正在获取 GitHub 最新版本信息...${NC}"
@@ -213,7 +245,19 @@ check_update() {
     echo -e "AnyTLS (官方协议库) GitHub 最新版本: ${LATEST_ANYTLS:-获取失败}"
     
     echo -e "${CYAN}----------------${NC}"
-    echo -e "注: 本服务端基于 Sing-box 运行，AnyTLS 协议已内嵌。若需更新，选择 [1] 执行覆盖安装即可拉取最新 Sing-box 核心。"
+    
+    if [[ "$LOCAL_VER" != "$LATEST_SB" && -n "$LATEST_SB" && "$LOCAL_VER" != "未知" ]]; then
+        echo -e "${YELLOW}发现 Sing-box 核心新版本！${NC}"
+        read -p "是否立即保留现有配置，执行核心覆盖更新？(y/N): " DO_UPDATE
+        if [[ "$DO_UPDATE" =~ ^[Yy]$ ]]; then
+            download_and_replace_core "$LATEST_SB"
+            systemctl start anytls
+            echo -e "${GREEN}核心更新成功！${NC}"
+            view_config
+        fi
+    elif [[ "$LOCAL_VER" == "$LATEST_SB" ]]; then
+        echo -e "${GREEN}当前核心已是最新版本，无需更新。${NC}"
+    fi
 }
 
 while true; do
