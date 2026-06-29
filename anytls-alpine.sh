@@ -127,20 +127,32 @@ issue_cert() {
 # --- 主功能模块 ---
 install_or_reconfig() {
     local is_running=0
+    # 1. 检测基于当前脚本的 OpenRC 服务
     if rc-service sing-box status 2>/dev/null | grep -q 'started'; then 
         is_running=1
-    elif pgrep -f "sing-box run" > /dev/null; then 
+    # 2. 匹配各种可能的 AnyTLS 进程名
+    elif pgrep -f "sing-box" > /dev/null || \
+         pgrep -f "anytls-server" > /dev/null || \
+         pgrep -f "anytls-rs" > /dev/null || \
+         pgrep -x "anytls" > /dev/null; then 
         is_running=1
     fi
     
     if [ $is_running -eq 1 ]; then
-        echo -e "${YELLOW}警告: 检测到 AnyTLS (sing-box) 服务当前正在运行。${PLAIN}"
-        read -p "继续执行将覆盖现有配置，是否继续？[y/N]: " confirm
+        echo -e "${YELLOW}警告: 检测到 AnyTLS 服务或相关进程当前正在运行。${PLAIN}"
+        read -p "继续执行将覆盖现有配置并停止现有进程，是否继续？[y/N]: " confirm
         if [[ "${confirm,,}" != "y" ]]; then
             echo "已取消安装/重新配置。"
             return
         fi
+        
+        # 停止当前脚本的默认服务
         rc-service sing-box stop >/dev/null 2>&1
+        
+        # 强制结束其他遗留的 AnyTLS 进程以释放端口
+        pkill -f "anytls-server" >/dev/null 2>&1
+        pkill -f "anytls-rs" >/dev/null 2>&1
+        pkill -x "anytls" >/dev/null 2>&1
     fi
 
     install_dependencies
