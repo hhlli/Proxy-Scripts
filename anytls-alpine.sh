@@ -11,7 +11,99 @@ LOG_FILE="/var/log/sing-box.log"
 ACME_SH="$HOME/.acme.sh/acme.sh"
 
 RED='\033[0;31m'
-GREEN='\033[0;32m'
+GREEN='\033[0;32m'install_or_reconfig() {
+    # 1. 新增：前置运行状态检测
+    local is_running=0
+    if rc-service sing-box status 2>/dev/null | grep -q 'started'; then 
+        is_running=1
+    elif pgrep -f "sing-box run" > /dev/null; then 
+        is_running=1
+    fi
+    
+    if [ $is_running -eq 1 ]; then
+        echo -e "${YELLOW}警告: 检测到 AnyTLS (sing-box) 服务当前正在运行。${PLAIN}"
+        read -p "继续执行将覆盖现有配置，是否继续？[y/N]: " confirm
+        if [[ "${confirm,,}" != "y" ]]; then
+            echo "已取消安装/重新配置。"
+            return
+        fi
+        # 用户确认后，提前停止服务以释放端口
+        rc-service sing-box stop >/dev/null 2>&1
+    fi
+
+    install_dependencies
+    
+    read -p "请输入需要解析的域名 (如: anytls.example.com): " domain
+    if [ -z "$domain" ]; then echo "域名不能为空"; exit 1; fi
+    
+    issue_cert "$domain"
+    
+    read -p "请输入监听/外部端口 [直接回车默认 8443]: " port
+    port=${port:-8443}
+    
+    # 2. 保留：系统级端口占用检测（排除被自己占用的情况，因为上面已经停了）
+    if netstat -tuln | grep -Eq ":$port\b"; then
+        local port_pid=$(netstat -tulnp 2>/dev/null | grep -E ":$port\b" | awk '{print $7}' | cut -d'/' -f1)
+        echo -e "${RED}错误: 端口 $port 已被系统其他进程 (PID: $port_pid) 占用，请更换端口。${PLAIN}"
+        exit 1
+    fi
+    
+    read -p "请输入 AnyTLS 密码 [直接回车随机生成]: " password
+    if [ -z "$password" ]; then
+        password=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
+        echo -e "已生成随机密码: ${GREEN}${password}${PLAIN}"
+    fi
+
+    if [ ! -f "$BIN_PATH" ]; then
+        install_sing_box
+    fi
+
+    cat > "$CONF_DIR/config.json" <<-EOF
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "anytls",
+      "tag": "anytls-in",
+      "listen": "::",
+      "listen_port": $port,
+      "users": [
+        {
+          "password": "$password"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "$domain",
+        "certificate_path": "$CONF_DIR/certs/cert.cer",
+        "key_path": "$CONF_DIR/certs/private.key"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+
+    configure_service
+    rc-service sing-box start
+    
+    # 3. 保留：最终启动结果校验
+    sleep 1
+    if rc-service sing-box status 2>/dev/null | grep -q 'started'; then
+        echo -e "\n${GREEN}=== 安装/重新配置完成 ===${PLAIN}"
+        print_nodes "$domain" "$port" "$password"
+    else
+        echo -e "\n${RED}服务启动失败，请使用菜单 5 查看日志排查原因。${PLAIN}"
+    fi
+}
 YELLOW='\033[0;33m'
 PLAIN='\033[0m'
 
@@ -126,6 +218,25 @@ issue_cert() {
 
 # --- 主功能模块 ---
 install_or_reconfig() {
+    # 1. 新增：前置运行状态检测
+    local is_running=0
+    if rc-service sing-box status 2>/dev/null | grep -q 'started'; then 
+        is_running=1
+    elif pgrep -f "sing-box run" > /dev/null; then 
+        is_running=1
+    fi
+    
+    if [ $is_running -eq 1 ]; then
+        echo -e "${YELLOW}警告: 检测到 AnyTLS (sing-box) 服务当前正在运行。${PLAIN}"
+        read -p "继续执行将覆盖现有配置，是否继续？[y/N]: " confirm
+        if [[ "${confirm,,}" != "y" ]]; then
+            echo "已取消安装/重新配置。"
+            return
+        fi
+        # 用户确认后，提前停止服务以释放端口
+        rc-service sing-box stop >/dev/null 2>&1
+    fi
+
     install_dependencies
     
     read -p "请输入需要解析的域名 (如: anytls.example.com): " domain
@@ -135,6 +246,13 @@ install_or_reconfig() {
     
     read -p "请输入监听/外部端口 [直接回车默认 8443]: " port
     port=${port:-8443}
+    
+    # 2. 保留：系统级端口占用检测（排除被自己占用的情况，因为上面已经停了）
+    if netstat -tuln | grep -Eq ":$port\b"; then
+        local port_pid=$(netstat -tulnp 2>/dev/null | grep -E ":$port\b" | awk '{print $7}' | cut -d'/' -f1)
+        echo -e "${RED}错误: 端口 $port 已被系统其他进程 (PID: $port_pid) 占用，请更换端口。${PLAIN}"
+        exit 1
+    fi
     
     read -p "请输入 AnyTLS 密码 [直接回车随机生成]: " password
     if [ -z "$password" ]; then
@@ -181,8 +299,8 @@ install_or_reconfig() {
 EOF
 
     configure_service
-    rc-service sing-box restart
-    
+    rc-service sing-box start
+
     echo -e "\n${GREEN}=== 安装/重新配置完成 ===${PLAIN}"
     print_nodes "$domain" "$port" "$password"
 }
